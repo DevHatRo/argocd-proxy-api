@@ -65,16 +65,6 @@ jobs:
         with:
           name: build-artifacts
           path: bin/
-
-      - name: Debug - List downloaded artifacts
-        run: |
-          echo "Contents of bin/ directory:"
-          ls -la bin/
-          echo "Expected file: bin/argocd-proxy-api-linux-${{ matrix.platform }}"
-          
-      - name: Make binaries executable
-        run: |
-          chmod +x bin/argocd-proxy-api-linux-* || echo "No binaries found to make executable"
           
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -124,10 +114,10 @@ jobs:
 
       - name: Create and push multi-arch manifest for ${{ matrix.component }}
         run: |
-          docker manifest create ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ matrix.component }}:${{ github.ref_name }} \
-            ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ matrix.component }}:${{ github.ref_name }}-linux-amd64 \
-            ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ matrix.component }}:${{ github.ref_name }}-linux-arm64
-          docker manifest push ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ matrix.component }}:${{ github.ref_name }}
+          docker manifest create ghcr.io/${{ env.REPO_OWNER_LOWER }}/argocd-proxy-${{ matrix.component }}:${{ github.ref_name }} \
+            ghcr.io/${{ env.REPO_OWNER_LOWER }}/argocd-proxy-${{ matrix.component }}:${{ github.ref_name }}-linux-amd64 \
+            ghcr.io/${{ env.REPO_OWNER_LOWER }}/argocd-proxy-${{ matrix.component }}:${{ github.ref_name }}-linux-arm64
+          docker manifest push ghcr.io/${{ env.REPO_OWNER_LOWER }}/argocd-proxy-${{ matrix.component }}:${{ github.ref_name }}
 
   release:
     name: Create Release
