@@ -1,0 +1,144 @@
+basePath: /
+host: localhost:5001
+info:
+  contact: {}
+  description: A proxy server for ArgoCD API with authentication and project filtering
+  title: ArgoCD Proxy API
+  version: "1.0"
+paths:
+  /applications:
+    get:
+      consumes:
+      - application/json
+      description: Get applications from ArgoCD with filtering applied based on ignored
+        projects configuration
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Filtered applications list
+        "502":
+          description: Failed to retrieve applications from ArgoCD
+      summary: Get filtered applications
+      tags:
+      - applications
+  /applications/{name}:
+    get:
+      consumes:
+      - application/json
+      description: Get a specific application by name from ArgoCD
+      parameters:
+      - description: Application name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Application details
+        "400":
+          description: Application name is required
+        "404":
+          description: Application not found
+        "502":
+          description: Failed to retrieve application from ArgoCD
+      summary: Get specific application
+      tags:
+      - applications
+  /groups/{group}/applications:
+    get:
+      consumes:
+      - application/json
+      description: Get all applications from a configured project group
+      parameters:
+      - description: Project group name
+        in: path
+        name: group
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Applications from the specified group
+        "400":
+          description: Invalid group name
+        "404":
+          description: Project group not found
+        "502":
+          description: Failed to retrieve applications from ArgoCD
+      summary: Get applications by project group
+      tags:
+      - applications
+  /health:
+    get:
+      consumes:
+      - application/json
+      description: Get the health status of the ArgoCD proxy server
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Server is healthy
+        "503":
+          description: Server is degraded
+      summary: Health check
+      tags:
+      - health
+  /project-groups:
+    get:
+      consumes:
+      - application/json
+      description: Get configured project groups and ungrouped projects from ArgoCD
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Project groups response
+        "502":
+          description: Failed to retrieve projects from ArgoCD
+      summary: Get project groups
+      tags:
+      - projects
+  /projects:
+    get:
+      consumes:
+      - application/json
+      description: Get projects from ArgoCD with filtering applied based on ignored
+        projects configuration
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Filtered projects list
+        "502":
+          description: Failed to retrieve projects from ArgoCD
+      summary: Get filtered projects
+      tags:
+      - projects
+  /projects/{project}/applications:
+    get:
+      consumes:
+      - application/json
+      description: Get all applications from a specific ArgoCD project
+      parameters:
+      - description: Project name
+        in: path
+        name: project
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Applications from the specified project
+        "400":
+          description: Invalid project name
+        "502":
+          description: Failed to retrieve applications from ArgoCD
+      summary: Get applications by project
+      tags:
+      - applications
+swagger: "2.0"

@@ -1,0 +1,216 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "A proxy server for ArgoCD API with authentication and project filtering",
+        "title": "ArgoCD Proxy API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:5001",
+    "basePath": "/",
+    "paths": {
+        "/applications": {
+            "get": {
+                "description": "Get applications from ArgoCD with filtering applied based on ignored projects configuration",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "applications"
+                ],
+                "summary": "Get filtered applications",
+                "responses": {
+                    "200": {
+                        "description": "Filtered applications list"
+                    },
+                    "502": {
+                        "description": "Failed to retrieve applications from ArgoCD"
+                    }
+                }
+            }
+        },
+        "/applications/{name}": {
+            "get": {
+                "description": "Get a specific application by name from ArgoCD",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "applications"
+                ],
+                "summary": "Get specific application",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Application details"
+                    },
+                    "400": {
+                        "description": "Application name is required"
+                    },
+                    "404": {
+                        "description": "Application not found"
+                    },
+                    "502": {
+                        "description": "Failed to retrieve application from ArgoCD"
+                    }
+                }
+            }
+        },
+        "/groups/{group}/applications": {
+            "get": {
+                "description": "Get all applications from a configured project group",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "applications"
+                ],
+                "summary": "Get applications by project group",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project group name",
+                        "name": "group",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Applications from the specified group"
+                    },
+                    "400": {
+                        "description": "Invalid group name"
+                    },
+                    "404": {
+                        "description": "Project group not found"
+                    },
+                    "502": {
+                        "description": "Failed to retrieve applications from ArgoCD"
+                    }
+                }
+            }
+        },
+        "/health": {
+            "get": {
+                "description": "Get the health status of the ArgoCD proxy server",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Health check",
+                "responses": {
+                    "200": {
+                        "description": "Server is healthy"
+                    },
+                    "503": {
+                        "description": "Server is degraded"
+                    }
+                }
+            }
+        },
+        "/project-groups": {
+            "get": {
+                "description": "Get configured project groups and ungrouped projects from ArgoCD",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "summary": "Get project groups",
+                "responses": {
+                    "200": {
+                        "description": "Project groups response"
+                    },
+                    "502": {
+                        "description": "Failed to retrieve projects from ArgoCD"
+                    }
+                }
+            }
+        },
+        "/projects": {
+            "get": {
+                "description": "Get projects from ArgoCD with filtering applied based on ignored projects configuration",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "summary": "Get filtered projects",
+                "responses": {
+                    "200": {
+                        "description": "Filtered projects list"
+                    },
+                    "502": {
+                        "description": "Failed to retrieve projects from ArgoCD"
+                    }
+                }
+            }
+        },
+        "/projects/{project}/applications": {
+            "get": {
+                "description": "Get all applications from a specific ArgoCD project",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "applications"
+                ],
+                "summary": "Get applications by project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project name",
+                        "name": "project",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Applications from the specified project"
+                    },
+                    "400": {
+                        "description": "Invalid project name"
+                    },
+                    "502": {
+                        "description": "Failed to retrieve applications from ArgoCD"
+                    }
+                }
+            }
+        }
+    }
+}
