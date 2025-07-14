@@ -1,0 +1,69 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+*.md
+docs/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+argocd-proxy
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test files
+*_test.go
+test/
+coverage.txt
+coverage.html
+
+# Environment files (contains sensitive data)
+.env
+.env.local
+.env.development
+.env.production
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.log
+
+# Dependencies (will be downloaded during build)
+vendor/
+
+# Docker files (not needed in the build context after copying)
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# Node.js artifacts (if any)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Other
+*.bak
+*.orig 
