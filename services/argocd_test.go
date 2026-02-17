@@ -864,3 +864,132 @@ func BenchmarkGetApplicationsWithFiltering(b *testing.B) {
 		service.GetApplications(ctx)
 	}
 }
+
+func TestGetProjectsCaching(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		projectList := types.ArgocdProjectList{
+			Items: []types.ArgocdProject{
+				{Metadata: types.ArgocdProjectMetadata{Name: "project-1"}},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(projectList)
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		ArgocdAPIURL: server.URL,
+		CacheTTL:     30 * time.Second,
+	}
+	authSvc := &MockAuthService{token: "test-token"}
+	service := NewArgocdService(cfg, authSvc)
+	ctx := context.Background()
+
+	// First call should hit the server
+	projects, err := service.GetProjects(ctx)
+	if err != nil {
+		t.Fatalf("first GetProjects() error: %v", err)
+	}
+	if len(projects) != 1 {
+		t.Fatalf("first GetProjects() count = %d, want 1", len(projects))
+	}
+	if callCount != 1 {
+		t.Fatalf("expected 1 server call, got %d", callCount)
+	}
+
+	// Second call should be served from cache
+	projects, err = service.GetProjects(ctx)
+	if err != nil {
+		t.Fatalf("second GetProjects() error: %v", err)
+	}
+	if len(projects) != 1 {
+		t.Fatalf("second GetProjects() count = %d, want 1", len(projects))
+	}
+	if callCount != 1 {
+		t.Errorf("expected server to still have 1 call (cache hit), got %d", callCount)
+	}
+}
+
+func TestGetApplicationsCaching(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		appList := types.ArgocdApplicationList{
+			APIVersion: "v1",
+			Kind:       "List",
+			Items: []types.ArgocdApplication{
+				{
+					Metadata: types.ArgocdApplicationMetadata{Name: "app-1"},
+					Spec:     types.ArgocdApplicationSpec{Project: "default"},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(appList)
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		ArgocdAPIURL: server.URL,
+		CacheTTL:     30 * time.Second,
+	}
+	authSvc := &MockAuthService{token: "test-token"}
+	service := NewArgocdService(cfg, authSvc)
+	ctx := context.Background()
+
+	// First call hits server
+	apps, err := service.GetApplications(ctx)
+	if err != nil {
+		t.Fatalf("first GetApplications() error: %v", err)
+	}
+	if len(apps.Items) != 1 {
+		t.Fatalf("first GetApplications() count = %d, want 1", len(apps.Items))
+	}
+	if callCount != 1 {
+		t.Fatalf("expected 1 server call, got %d", callCount)
+	}
+
+	// Second call served from cache
+	apps, err = service.GetApplications(ctx)
+	if err != nil {
+		t.Fatalf("second GetApplications() error: %v", err)
+	}
+	if len(apps.Items) != 1 {
+		t.Fatalf("second GetApplications() count = %d, want 1", len(apps.Items))
+	}
+	if callCount != 1 {
+		t.Errorf("expected server to still have 1 call (cache hit), got %d", callCount)
+	}
+}
+
+func TestCacheDisabledWithZeroTTL(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		projectList := types.ArgocdProjectList{
+			Items: []types.ArgocdProject{
+				{Metadata: types.ArgocdProjectMetadata{Name: "project-1"}},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(projectList)
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		ArgocdAPIURL: server.URL,
+		CacheTTL:     0,
+	}
+	authSvc := &MockAuthService{token: "test-token"}
+	service := NewArgocdService(cfg, authSvc)
+	ctx := context.Background()
+
+	service.GetProjects(ctx)
+	service.GetProjects(ctx)
+
+	if callCount != 2 {
+		t.Errorf("with TTL=0, expected 2 server calls, got %d", callCount)
+	}
+}

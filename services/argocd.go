@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"argocd-proxy/cache"
 	"argocd-proxy/config"
 	"argocd-proxy/metrics"
 	"argocd-proxy/types"
@@ -16,9 +17,11 @@ import (
 
 // ArgocdService provides access to ArgoCD API endpoints
 type ArgocdService struct {
-	config      *config.Config
-	authService types.AuthServiceInterface
-	httpClient  *http.Client
+	config            *config.Config
+	authService       types.AuthServiceInterface
+	httpClient        *http.Client
+	projectsCache     *cache.Cache[[]types.ArgocdProject]
+	applicationsCache *cache.Cache[types.ArgocdApplicationList]
 }
 
 // NewArgocdService creates a new ArgoCD service instance
@@ -29,6 +32,8 @@ func NewArgocdService(cfg *config.Config, authSvc types.AuthServiceInterface) *A
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		projectsCache:     cache.New[[]types.ArgocdProject](cfg.CacheTTL),
+		applicationsCache: cache.New[types.ArgocdApplicationList](cfg.CacheTTL),
 	}
 }
 
@@ -51,6 +56,12 @@ func (s *ArgocdService) doInstrumented(req *http.Request, endpoint string) (*htt
 
 // GetProjects retrieves all projects from ArgoCD
 func (s *ArgocdService) GetProjects(ctx context.Context) ([]types.ArgocdProject, error) {
+	if cached, ok := s.projectsCache.Get(); ok {
+		metrics.CacheHitsTotal.WithLabelValues("projects").Inc()
+		return cached, nil
+	}
+	metrics.CacheMissesTotal.WithLabelValues("projects").Inc()
+
 	url := fmt.Sprintf("%s/projects", s.config.ArgocdAPIURL)
 
 	req, err := s.authService.CreateAuthenticatedRequest(ctx, "GET", url, nil)
@@ -74,6 +85,7 @@ func (s *ArgocdService) GetProjects(ctx context.Context) ([]types.ArgocdProject,
 		return nil, fmt.Errorf("failed to decode projects response: %w", err)
 	}
 
+	s.projectsCache.Set(projectList.Items)
 	return projectList.Items, nil
 }
 
@@ -96,6 +108,12 @@ func (s *ArgocdService) GetFilteredProjects(ctx context.Context) ([]types.Argocd
 
 // GetApplications retrieves all applications from ArgoCD with filtering applied
 func (s *ArgocdService) GetApplications(ctx context.Context) (types.ArgocdApplicationList, error) {
+	if cached, ok := s.applicationsCache.Get(); ok {
+		metrics.CacheHitsTotal.WithLabelValues("applications").Inc()
+		return cached, nil
+	}
+	metrics.CacheMissesTotal.WithLabelValues("applications").Inc()
+
 	url := fmt.Sprintf("%s/applications", s.config.ArgocdAPIURL)
 
 	req, err := s.authService.CreateAuthenticatedRequest(ctx, "GET", url, nil)
@@ -132,6 +150,7 @@ func (s *ArgocdService) GetApplications(ctx context.Context) (types.ArgocdApplic
 	// Update the application list with filtered results
 	appList.Items = filteredApps
 
+	s.applicationsCache.Set(appList)
 	return appList, nil
 }
 

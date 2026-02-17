@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 // ProjectGroup represents a group of projects with metadata
@@ -28,6 +29,7 @@ type Config struct {
 	ArgocdPassword  string
 	ProjectGroups   []ProjectGroup
 	IgnoredProjects []string
+	CacheTTL        time.Duration
 }
 
 // LoadConfig loads configuration from environment variables
@@ -56,6 +58,14 @@ func LoadConfig() (*Config, error) {
 			return nil, fmt.Errorf("failed to parse PROJECT_GROUPS: %w", err)
 		}
 	}
+
+	// Load cache TTL from environment variable (default: 30s)
+	cacheTTLStr := getEnvOrDefault("CACHE_TTL", "30s")
+	cacheTTL, err := time.ParseDuration(cacheTTLStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CACHE_TTL %q: %w", cacheTTLStr, err)
+	}
+	config.CacheTTL = cacheTTL
 
 	// Load ignored projects from environment variable
 	if ignoredProjectsStr := os.Getenv("IGNORED_PROJECTS"); ignoredProjectsStr != "" {
