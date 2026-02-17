@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/DevHatRo/argocd-proxy-api/compare/v1.0.0...v1.1.0) (2026-02-17)
+
+
+### Features
+
+* add Prometheus metrics for HTTP requests, ArgoCD API calls, and token refreshes ([#31](https://github.com/DevHatRo/argocd-proxy-api/issues/31)) ([45cb7d7](https://github.com/DevHatRo/argocd-proxy-api/commit/45cb7d78fb4610d34bbb48f238fdbbed98f46080))
+
 ## [1.0.0](https://github.com/DevHatRo/argocd-proxy-api/compare/v0.11.0...v1.0.0) (2026-02-17)
 
 
