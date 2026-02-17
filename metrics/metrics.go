@@ -76,6 +76,25 @@ var (
 	)
 )
 
+// Cache metrics
+var (
+	CacheHitsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "cache_hits_total",
+			Help: "Total number of cache hits.",
+		},
+		[]string{"cache"},
+	)
+
+	CacheMissesTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "cache_misses_total",
+			Help: "Total number of cache misses.",
+		},
+		[]string{"cache"},
+	)
+)
+
 // Build info metric
 var BuildInfo = promauto.NewGaugeVec(
 	prometheus.GaugeOpts{

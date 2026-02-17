@@ -4,6 +4,7 @@ import (
 	"os"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -31,6 +32,7 @@ func TestLoadConfig(t *testing.T) {
 				ArgocdPassword:  "testpass",
 				ProjectGroups:   []ProjectGroup{{Name: "Frontend", Description: "Frontend apps", Projects: []string{"web-app"}}},
 				IgnoredProjects: []string{"test-*", "*-dev"},
+				CacheTTL:        30 * time.Second,
 			},
 		},
 		{
@@ -48,6 +50,7 @@ func TestLoadConfig(t *testing.T) {
 				ArgocdPassword:  "testpass",
 				ProjectGroups:   nil,
 				IgnoredProjects: nil,
+				CacheTTL:        30 * time.Second,
 			},
 		},
 		{
@@ -89,7 +92,7 @@ func TestLoadConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clear all environment variables
-			for _, env := range []string{"PORT", "ARGOCD_API_URL", "ARGOCD_USERNAME", "ARGOCD_PASSWORD", "PROJECT_GROUPS", "IGNORED_PROJECTS"} {
+			for _, env := range []string{"PORT", "ARGOCD_API_URL", "ARGOCD_USERNAME", "ARGOCD_PASSWORD", "PROJECT_GROUPS", "IGNORED_PROJECTS", "CACHE_TTL"} {
 				os.Unsetenv(env)
 			}
 
@@ -129,6 +132,58 @@ func TestLoadConfig(t *testing.T) {
 			}
 			if !reflect.DeepEqual(config.IgnoredProjects, tt.expected.IgnoredProjects) {
 				t.Errorf("LoadConfig() IgnoredProjects = %v, want %v", config.IgnoredProjects, tt.expected.IgnoredProjects)
+			}
+			if config.CacheTTL != tt.expected.CacheTTL {
+				t.Errorf("LoadConfig() CacheTTL = %v, want %v", config.CacheTTL, tt.expected.CacheTTL)
+			}
+		})
+	}
+}
+
+func TestLoadConfigCacheTTL(t *testing.T) {
+	baseEnv := map[string]string{
+		"ARGOCD_API_URL":  "https://argocd.example.com/api/v1",
+		"ARGOCD_USERNAME": "testuser",
+		"ARGOCD_PASSWORD": "testpass",
+	}
+
+	tests := []struct {
+		name     string
+		cacheTTL string
+		wantTTL  time.Duration
+		wantErr  bool
+	}{
+		{"default 30s when unset", "", 30 * time.Second, false},
+		{"custom 1m", "1m", 1 * time.Minute, false},
+		{"custom 10s", "10s", 10 * time.Second, false},
+		{"zero disables cache", "0s", 0, false},
+		{"invalid value", "notaduration", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, env := range []string{"PORT", "ARGOCD_API_URL", "ARGOCD_USERNAME", "ARGOCD_PASSWORD", "PROJECT_GROUPS", "IGNORED_PROJECTS", "CACHE_TTL"} {
+				os.Unsetenv(env)
+			}
+			for key, value := range baseEnv {
+				os.Setenv(key, value)
+			}
+			if tt.cacheTTL != "" {
+				os.Setenv("CACHE_TTL", tt.cacheTTL)
+			}
+
+			cfg, err := LoadConfig()
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error but got none")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if cfg.CacheTTL != tt.wantTTL {
+				t.Errorf("CacheTTL = %v, want %v", cfg.CacheTTL, tt.wantTTL)
 			}
 		})
 	}
