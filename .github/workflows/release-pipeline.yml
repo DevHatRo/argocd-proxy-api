@@ -115,7 +115,7 @@ jobs:
           docker manifest push ghcr.io/${{ env.REPO_OWNER_LOWER }}/argocd-proxy-api:${{ github.ref_name }}
 
   release:
-    name: Create Release
+    name: Upload Artifacts
     runs-on: ubuntu-latest
     needs: [build, create-manifests]
     steps:
@@ -125,13 +125,9 @@ jobs:
           name: build-artifacts
           path: bin/
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v6
         with:
-          files: |
-            bin/*
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: build-artifacts
+          path: bin/*
+          retention-days: 1
