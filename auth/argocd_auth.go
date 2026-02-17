@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"argocd-proxy/config"
+	"argocd-proxy/metrics"
 	"argocd-proxy/types"
 )
 
@@ -88,7 +89,13 @@ func (a *AuthService) refreshToken(ctx context.Context) (string, error) {
 		a.refreshingToken = false
 	}()
 
+	start := time.Now()
 	log.Println("Refreshing ArgoCD token...")
+
+	recordResult := func(result string) {
+		metrics.TokenRefreshDuration.Observe(time.Since(start).Seconds())
+		metrics.TokenRefreshTotal.WithLabelValues(result).Inc()
+	}
 
 	// Prepare the session request
 	sessionReq := types.ArgocdSessionRequest{
@@ -98,6 +105,7 @@ func (a *AuthService) refreshToken(ctx context.Context) (string, error) {
 
 	reqBody, err := json.Marshal(sessionReq)
 	if err != nil {
+		recordResult("failure")
 		return "", fmt.Errorf("failed to marshal session request: %w", err)
 	}
 
@@ -105,6 +113,7 @@ func (a *AuthService) refreshToken(ctx context.Context) (string, error) {
 	url := fmt.Sprintf("%s/session", a.config.ArgocdAPIURL)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqBody))
 	if err != nil {
+		recordResult("failure")
 		return "", fmt.Errorf("failed to create session request: %w", err)
 	}
 
@@ -113,21 +122,25 @@ func (a *AuthService) refreshToken(ctx context.Context) (string, error) {
 	// Execute the request
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
+		recordResult("failure")
 		return "", fmt.Errorf("failed to execute session request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		recordResult("failure")
 		return "", fmt.Errorf("ArgoCD authentication failed with status %d", resp.StatusCode)
 	}
 
 	// Parse the response
 	var sessionResp types.ArgocdSessionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&sessionResp); err != nil {
+		recordResult("failure")
 		return "", fmt.Errorf("failed to decode session response: %w", err)
 	}
 
 	if sessionResp.Token == "" {
+		recordResult("failure")
 		return "", fmt.Errorf("received empty token from ArgoCD")
 	}
 
@@ -140,6 +153,7 @@ func (a *AuthService) refreshToken(ctx context.Context) (string, error) {
 		IssuedAt:  now,
 	}
 
+	recordResult("success")
 	log.Printf("Successfully refreshed ArgoCD token, expires at: %s", a.tokenCache.ExpiresAt.Format(time.RFC3339))
 	return a.tokenCache.Token, nil
 }

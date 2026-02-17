@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"argocd-proxy/config"
+	"argocd-proxy/metrics"
 	"argocd-proxy/types"
 )
 
@@ -560,6 +561,28 @@ func TestErrorResponse(t *testing.T) {
 				t.Errorf("errorResponse() missing error field")
 			}
 		})
+	}
+}
+
+func TestMetricsEndpoint(t *testing.T) {
+	metrics.SetBuildInfo("test", "test")
+	server := setupTestServer()
+
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	w := httptest.NewRecorder()
+
+	server.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("metrics endpoint status = %v, want %v", w.Code, http.StatusOK)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "build_info") {
+		t.Errorf("metrics response missing build_info")
+	}
+	if !strings.Contains(body, "go_goroutines") {
+		t.Errorf("metrics response missing go runtime metrics")
 	}
 }
 
