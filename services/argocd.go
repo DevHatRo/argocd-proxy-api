@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"argocd-proxy/config"
+	"argocd-proxy/metrics"
 	"argocd-proxy/types"
 )
 
@@ -30,6 +32,23 @@ func NewArgocdService(cfg *config.Config, authSvc types.AuthServiceInterface) *A
 	}
 }
 
+// doInstrumented executes an HTTP request and records ArgoCD API metrics.
+func (s *ArgocdService) doInstrumented(req *http.Request, endpoint string) (*http.Response, error) {
+	start := time.Now()
+	resp, err := s.httpClient.Do(req)
+	duration := time.Since(start).Seconds()
+
+	metrics.ArgocdAPIRequestDuration.WithLabelValues(endpoint).Observe(duration)
+
+	status := "error"
+	if err == nil {
+		status = strconv.Itoa(resp.StatusCode)
+	}
+	metrics.ArgocdAPIRequestsTotal.WithLabelValues(endpoint, status).Inc()
+
+	return resp, err
+}
+
 // GetProjects retrieves all projects from ArgoCD
 func (s *ArgocdService) GetProjects(ctx context.Context) ([]types.ArgocdProject, error) {
 	url := fmt.Sprintf("%s/projects", s.config.ArgocdAPIURL)
@@ -39,7 +58,7 @@ func (s *ArgocdService) GetProjects(ctx context.Context) ([]types.ArgocdProject,
 		return nil, fmt.Errorf("failed to create authenticated request: %w", err)
 	}
 
-	resp, err := s.httpClient.Do(req)
+	resp, err := s.doInstrumented(req, "/projects")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request to ArgoCD: %w", err)
 	}
@@ -84,7 +103,7 @@ func (s *ArgocdService) GetApplications(ctx context.Context) (types.ArgocdApplic
 		return types.ArgocdApplicationList{}, fmt.Errorf("failed to create authenticated request: %w", err)
 	}
 
-	resp, err := s.httpClient.Do(req)
+	resp, err := s.doInstrumented(req, "/applications")
 	if err != nil {
 		return types.ArgocdApplicationList{}, fmt.Errorf("failed to execute request to ArgoCD: %w", err)
 	}
@@ -125,7 +144,7 @@ func (s *ArgocdService) GetApplication(ctx context.Context, name string) (types.
 		return types.ArgocdApplication{}, fmt.Errorf("failed to create authenticated request: %w", err)
 	}
 
-	resp, err := s.httpClient.Do(req)
+	resp, err := s.doInstrumented(req, "/applications/:name")
 	if err != nil {
 		return types.ArgocdApplication{}, fmt.Errorf("failed to execute request to ArgoCD: %w", err)
 	}
@@ -165,7 +184,7 @@ func (s *ArgocdService) ProxyRequest(ctx context.Context, method, path string, b
 		return nil, fmt.Errorf("failed to create authenticated request: %w", err)
 	}
 
-	resp, err := s.httpClient.Do(req)
+	resp, err := s.doInstrumented(req, "/proxy")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request to ArgoCD: %w", err)
 	}
@@ -209,7 +228,7 @@ func (s *ArgocdService) HealthCheck(ctx context.Context) error {
 
 	req = req.WithContext(healthCtx)
 
-	resp, err := s.httpClient.Do(req)
+	resp, err := s.doInstrumented(req, "/healthcheck")
 	if err != nil {
 		return fmt.Errorf("health check request failed: %w", err)
 	}

@@ -43,6 +43,7 @@ import (
 	"argocd-proxy/auth"
 	"argocd-proxy/config"
 	_ "argocd-proxy/docs" // Import generated docs
+	"argocd-proxy/metrics"
 	"argocd-proxy/services"
 	"argocd-proxy/types"
 )
@@ -88,6 +89,9 @@ func main() {
 	server.authService = authSvc
 	server.argocdService = services.NewArgocdService(cfg, authSvc)
 
+	// Register build info metric
+	metrics.SetBuildInfo(Version, BuildTime)
+
 	// Setup router and middleware
 	server.setupRouter()
 
@@ -107,6 +111,7 @@ func (s *Server) setupRouter() {
 	// Add middleware
 	s.router.Use(gin.Logger())
 	s.router.Use(gin.Recovery())
+	s.router.Use(metrics.GinMiddleware())
 
 	// CORS configuration
 	corsConfig := cors.DefaultConfig()
@@ -124,6 +129,9 @@ func (s *Server) setupRouter() {
 	s.router.GET("/applications/:name", s.getApplication)
 	s.router.GET("/groups/:group/applications", s.getApplicationsByGroup)
 	s.router.GET("/projects/:project/applications", s.getApplicationsByProject)
+
+	// Prometheus metrics
+	s.router.GET("/metrics", metrics.Handler())
 
 	// Swagger documentation
 	s.router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
@@ -387,6 +395,7 @@ func (s *Server) start(ctx context.Context, cancel context.CancelFunc) {
 	go func() {
 		log.Printf("Starting ArgoCD Proxy server on port %s", s.config.Port)
 		log.Printf("Health check available at: http://localhost:%s/health", s.config.Port)
+		log.Printf("Prometheus metrics available at: http://localhost:%s/metrics", s.config.Port)
 		log.Printf("Swagger documentation available at: http://localhost:%s/swagger/index.html", s.config.Port)
 		log.Printf("ArgoCD API URL: %s", s.config.ArgocdAPIURL)
 
