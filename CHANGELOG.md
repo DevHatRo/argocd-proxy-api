@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/DevHatRo/argocd-proxy-api/compare/v1.1.0...v1.2.0) (2026-02-17)
+
+
+### Features
+
+* add in-memory TTL cache for ArgoCD API responses ([#33](https://github.com/DevHatRo/argocd-proxy-api/issues/33)) ([daac2df](https://github.com/DevHatRo/argocd-proxy-api/commit/daac2dfdbb207cf443fce91c3acde03488ac2594))
+
 ## [1.1.0](https://github.com/DevHatRo/argocd-proxy-api/compare/v1.0.0...v1.1.0) (2026-02-17)
 
 
