@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/DevHatRo/argocd-proxy-api/compare/v0.9.2...v0.10.0) (2026-02-17)
+
+
+### Features
+
+* trigger release ([ea1e6bc](https://github.com/DevHatRo/argocd-proxy-api/commit/ea1e6bcfd4b9f0ca7586ec8e608018d903aa05aa))
+
 ## [0.9.2](https://github.com/DevHatRo/argocd-proxy-api/compare/v0.9.1...v0.9.2) (2026-02-17)
 
 
