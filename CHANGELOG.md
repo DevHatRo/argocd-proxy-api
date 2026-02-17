@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/DevHatRo/argocd-proxy-api/compare/v0.11.0...v1.0.0) (2026-02-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* fixed CI bump ([#29](https://github.com/DevHatRo/argocd-proxy-api/issues/29))
+
+### Features
+
+* fixed CI bump ([#29](https://github.com/DevHatRo/argocd-proxy-api/issues/29)) ([731712f](https://github.com/DevHatRo/argocd-proxy-api/commit/731712feb351aee439191edf2ee820581a0984ff))
+
 ## [0.11.0](https://github.com/DevHatRo/argocd-proxy-api/compare/v0.10.0...v0.11.0) (2026-02-17)
 
 
