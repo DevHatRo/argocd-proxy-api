@@ -5,42 +5,42 @@ on:
     branches:
       - main
     paths-ignore:
-      - 'docs/**'
-      - 'examples/**'
-      - 'README.md'
-      - 'README'
+      - "docs/**"
+      - "examples/**"
+      - "README.md"
+      - "README"
   pull_request:
     branches:
       - main
     paths-ignore:
-      - 'docs/**'
-      - 'examples/**'
-      - 'README.md'
-      - 'README'
+      - "docs/**"
+      - "examples/**"
+      - "README.md"
+      - "README"
 
 jobs:
   build:
     name: Build App for Testing
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.23"
+          go-version: "1.26"
           cache: true
 
       - name: Update Go dependencies
         run: |
           go mod tidy
-      
+
       - name: Generate Swagger Documentation
         run: |
           go run github.com/swaggo/swag/cmd/swag@latest init
-      
+
       - name: Run Tests
         run: |
           go test ./... -v
@@ -50,8 +50,8 @@ jobs:
           ./scripts/build.sh
 
       - name: Upload Test Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-build-artifacts
           path: bin/
-          retention-days: 7 
+          retention-days: 7

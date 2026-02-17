@@ -717,6 +717,196 @@ func TestGetApplicationsByProject(t *testing.T) {
 	}
 }
 
+func TestHealthCheckVersionInfo(t *testing.T) {
+	// Override version vars for testing
+	origVersion := Version
+	origBuildTime := BuildTime
+	Version = "v1.2.3"
+	BuildTime = "2026-01-01T00:00:00Z"
+	defer func() {
+		Version = origVersion
+		BuildTime = origBuildTime
+	}()
+
+	server := setupTestServer()
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+
+	server.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("healthCheck() status = %v, want %v", w.Code, http.StatusOK)
+	}
+
+	var response types.HealthResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("healthCheck() invalid JSON response: %v", err)
+	}
+
+	if response.Version != "v1.2.3" {
+		t.Errorf("healthCheck() version = %v, want %v", response.Version, "v1.2.3")
+	}
+
+	if response.BuildTime != "2026-01-01T00:00:00Z" {
+		t.Errorf("healthCheck() buildTime = %v, want %v", response.BuildTime, "2026-01-01T00:00:00Z")
+	}
+}
+
+func TestHealthCheckDefaultVersionInfo(t *testing.T) {
+	// Ensure defaults are present when not overridden by ldflags
+	origVersion := Version
+	origBuildTime := BuildTime
+	Version = "dev"
+	BuildTime = "unknown"
+	defer func() {
+		Version = origVersion
+		BuildTime = origBuildTime
+	}()
+
+	server := setupTestServer()
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+
+	server.router.ServeHTTP(w, req)
+
+	var response types.HealthResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("healthCheck() invalid JSON response: %v", err)
+	}
+
+	if response.Version != "dev" {
+		t.Errorf("healthCheck() version = %v, want %v", response.Version, "dev")
+	}
+
+	if response.BuildTime != "unknown" {
+		t.Errorf("healthCheck() buildTime = %v, want %v", response.BuildTime, "unknown")
+	}
+}
+
+func TestHandleNotFound(t *testing.T) {
+	server := setupTestServer()
+
+	tests := []struct {
+		name           string
+		path           string
+		expectedStatus int
+		expectJSON     bool
+	}{
+		{
+			name:           "non-swagger route returns JSON error",
+			path:           "/nonexistent",
+			expectedStatus: http.StatusNotFound,
+			expectJSON:     true,
+		},
+		{
+			name:           "API-like route returns JSON error",
+			path:           "/some/api/path",
+			expectedStatus: http.StatusNotFound,
+			expectJSON:     true,
+		},
+		{
+			name:           "swagger route returns non-JSON 404",
+			path:           "/swagger/nonexistent",
+			expectedStatus: http.StatusNotFound,
+			expectJSON:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", tt.path, nil)
+			w := httptest.NewRecorder()
+
+			server.router.ServeHTTP(w, req)
+
+			if w.Code != tt.expectedStatus {
+				t.Errorf("handleNotFound() status = %v, want %v", w.Code, tt.expectedStatus)
+			}
+
+			if tt.expectJSON {
+				var response types.ErrorResponse
+				if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+					t.Errorf("handleNotFound() expected JSON response but got: %s", w.Body.String())
+					return
+				}
+				if response.Code != http.StatusNotFound {
+					t.Errorf("handleNotFound() response code = %v, want %v", response.Code, http.StatusNotFound)
+				}
+				if response.Message != "Endpoint not found" {
+					t.Errorf("handleNotFound() message = %v, want 'Endpoint not found'", response.Message)
+				}
+			} else {
+				// Swagger handler returns its own 404; just ensure it's not a JSON error response
+				var errResp types.ErrorResponse
+				if err := json.Unmarshal(w.Body.Bytes(), &errResp); err == nil && errResp.Code == http.StatusNotFound && errResp.Message == "Endpoint not found" {
+					t.Errorf("handleNotFound() swagger path should not return the standard JSON error response")
+				}
+			}
+		})
+	}
+}
+
+func TestErrorResponseDebugMode(t *testing.T) {
+	// Test that details are included in debug mode
+	server := setupTestServer()
+
+	gin.SetMode(gin.DebugMode)
+	defer gin.SetMode(gin.TestMode)
+
+	// Trigger a service error that includes details
+	mockService := server.argocdService.(*MockArgocdService)
+	mockService.err = fmt.Errorf("connection refused")
+
+	req := httptest.NewRequest("GET", "/projects", nil)
+	w := httptest.NewRecorder()
+
+	server.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("errorResponse() status = %v, want %v", w.Code, http.StatusBadGateway)
+	}
+
+	var response types.ErrorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("errorResponse() invalid JSON: %v", err)
+	}
+
+	if !strings.Contains(response.Message, "connection refused") {
+		t.Errorf("errorResponse() in debug mode should include details, got: %v", response.Message)
+	}
+}
+
+func TestErrorResponseReleaseMode(t *testing.T) {
+	// Test that details are hidden in release mode
+	server := setupTestServer()
+
+	gin.SetMode(gin.ReleaseMode)
+	defer gin.SetMode(gin.TestMode)
+
+	mockService := server.argocdService.(*MockArgocdService)
+	mockService.err = fmt.Errorf("connection refused")
+
+	req := httptest.NewRequest("GET", "/projects", nil)
+	w := httptest.NewRecorder()
+
+	server.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("errorResponse() status = %v, want %v", w.Code, http.StatusBadGateway)
+	}
+
+	var response types.ErrorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("errorResponse() invalid JSON: %v", err)
+	}
+
+	if strings.Contains(response.Message, "connection refused") {
+		t.Errorf("errorResponse() in release mode should not include details, got: %v", response.Message)
+	}
+}
+
 // Benchmark tests for HTTP handlers
 func BenchmarkHealthCheck(b *testing.B) {
 	server := setupTestServer()

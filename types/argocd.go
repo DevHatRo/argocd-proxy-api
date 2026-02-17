@@ -31,6 +31,8 @@ type ArgocdServiceInterface interface {
 type HealthResponse struct {
 	Status      string                 `json:"status"`
 	Timestamp   string                 `json:"timestamp"`
+	Version     string                 `json:"version"`
+	BuildTime   string                 `json:"buildTime"`
 	TokenStatus map[string]interface{} `json:"tokenStatus"`
 	ArgocdAPI   string                 `json:"argocdApiStatus"`
 }
