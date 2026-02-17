@@ -47,6 +47,12 @@ import (
 	"argocd-proxy/types"
 )
 
+// Version and build information, injected at build time via ldflags.
+var (
+	Version   = "dev"
+	BuildTime = "unknown"
+)
+
 // Server holds the main server components
 type Server struct {
 	config        *config.Config
@@ -142,6 +148,8 @@ func (s *Server) healthCheck(c *gin.Context) {
 	response := types.HealthResponse{
 		Status:      "healthy",
 		Timestamp:   time.Now().Format(time.RFC3339),
+		Version:     Version,
+		BuildTime:   BuildTime,
 		TokenStatus: s.authService.GetTokenStatus(),
 		ArgocdAPI:   "unknown",
 	}
