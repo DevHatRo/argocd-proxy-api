@@ -37,7 +37,7 @@ jobs:
           VERSION=${{ github.ref_name }} ./scripts/build.sh
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: build-artifacts
           path: bin/
@@ -126,7 +126,7 @@ jobs:
           path: bin/
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           tag_name: ${{ github.ref_name }}
           path: bin/*
