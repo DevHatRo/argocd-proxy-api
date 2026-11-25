@@ -1,6 +1,9 @@
 version: 2
+
+# Minor and patch updates arrive as one grouped PR per ecosystem and are merged
+# automatically once Test Build passes (see workflows/dependabot-automerge.yml).
+# Major updates arrive as separate PRs and are merged by hand.
 updates:
-  # Enable version updates for Go modules
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
@@ -8,6 +11,9 @@ updates:
       day: "monday"
       time: "04:00"
     open-pull-requests-limit: 10
+    groups:
+      go-minor-patch:
+        update-types: ["minor", "patch"]
     commit-message:
       prefix: "deps"
       include: "scope"
@@ -15,7 +21,6 @@ updates:
       - "dependencies"
       - "go"
 
-  # Enable version updates for GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -23,6 +28,9 @@ updates:
       day: "monday"
       time: "04:00"
     open-pull-requests-limit: 5
+    groups:
+      actions-minor-patch:
+        update-types: ["minor", "patch"]
     commit-message:
       prefix: "ci"
       include: "scope"
@@ -30,7 +38,6 @@ updates:
       - "dependencies"
       - "github-actions"
 
-  # Enable version updates for Docker
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
@@ -38,8 +45,11 @@ updates:
       day: "monday"
       time: "04:00"
     open-pull-requests-limit: 5
+    groups:
+      docker-minor-patch:
+        update-types: ["minor", "patch"]
     commit-message:
-      prefix: "docker"
+      prefix: "deps"
       include: "scope"
     labels:
       - "dependencies"
