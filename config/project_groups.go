@@ -30,6 +30,8 @@ type Config struct {
 	ProjectGroups   []ProjectGroup
 	IgnoredProjects []string
 	CacheTTL        time.Duration
+	// CORSAllowedOrigins restricts CORS to these origins; empty allows any origin.
+	CORSAllowedOrigins []string
 }
 
 // LoadConfig loads configuration from environment variables
@@ -67,12 +69,11 @@ func LoadConfig() (*Config, error) {
 	}
 	config.CacheTTL = cacheTTL
 
-	// Load ignored projects from environment variable
-	if ignoredProjectsStr := os.Getenv("IGNORED_PROJECTS"); ignoredProjectsStr != "" {
-		config.IgnoredProjects = strings.Split(ignoredProjectsStr, ",")
-		// Trim whitespace from each project name
-		for i, project := range config.IgnoredProjects {
-			config.IgnoredProjects[i] = strings.TrimSpace(project)
+	config.IgnoredProjects = splitCSV(os.Getenv("IGNORED_PROJECTS"))
+	config.CORSAllowedOrigins = splitCSV(os.Getenv("CORS_ALLOWED_ORIGINS"))
+	for _, origin := range config.CORSAllowedOrigins {
+		if !strings.HasPrefix(origin, "http://") && !strings.HasPrefix(origin, "https://") {
+			return nil, fmt.Errorf("CORS_ALLOWED_ORIGINS: %q must start with http:// or https://", origin)
 		}
 	}
 
@@ -176,13 +177,16 @@ func (c *Config) GetProjectGroups(allProjects []string) ProjectGroupsResponse {
 	return response
 }
 
-// FilterProjects returns a list of projects that are not ignored
-func (c *Config) FilterProjects(projects []string) []string {
-	var filtered []string
-	for _, project := range projects {
-		if !c.IsProjectIgnored(project) {
-			filtered = append(filtered, project)
+// splitCSV splits a comma-separated value and trims each entry; empty input gives nil
+func splitCSV(value string) []string {
+	if value == "" {
+		return nil
+	}
+	var parts []string
+	for _, part := range strings.Split(value, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			parts = append(parts, part)
 		}
 	}
-	return filtered
+	return parts
 }

@@ -2,9 +2,13 @@ package types
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 )
+
+// ErrNotFound is returned for a resource that does not exist or is hidden by filtering.
+var ErrNotFound = errors.New("not found")
 
 // AuthServiceInterface defines the interface for authentication services
 type AuthServiceInterface interface {
@@ -12,6 +16,7 @@ type AuthServiceInterface interface {
 	CreateAuthenticatedRequest(ctx context.Context, method, url string, body []byte) (*http.Request, error)
 	GetTokenStatus() map[string]interface{}
 	StartTokenRefreshRoutine(ctx context.Context)
+	InvalidateToken()
 }
 
 // ArgocdServiceInterface defines the interface for ArgoCD services
@@ -22,8 +27,7 @@ type ArgocdServiceInterface interface {
 	GetApplication(ctx context.Context, name string) (ArgocdApplication, error)
 	GetProjectNames(ctx context.Context) ([]string, error)
 	HealthCheck(ctx context.Context) error
-	ExtractIngressURLs(ctx context.Context, appName string) ([]string, error)
-	GetApplicationsByGroup(ctx context.Context, groupName string, cfg interface{}) (ArgocdApplicationList, error)
+	GetApplicationsByGroup(ctx context.Context, groupName string) (ArgocdApplicationList, error)
 	GetApplicationsByProject(ctx context.Context, projectName string) (ArgocdApplicationList, error)
 }
 
@@ -81,7 +85,7 @@ type ArgocdProjectMetadata struct {
 	Namespace         string            `json:"namespace,omitempty"`
 	Labels            map[string]string `json:"labels,omitempty"`
 	Annotations       map[string]string `json:"annotations,omitempty"`
-	CreationTimestamp time.Time         `json:"creationTimestamp,omitempty"`
+	CreationTimestamp time.Time         `json:"creationTimestamp,omitzero"`
 	UID               string            `json:"uid,omitempty"`
 }
 
@@ -149,7 +153,7 @@ type ArgocdApplicationStatus struct {
 	Sync         ArgocdApplicationSync     `json:"sync"`
 	Resources    []interface{}             `json:"resources,omitempty"`
 	Conditions   []interface{}             `json:"conditions,omitempty"`
-	ReconciledAt time.Time                 `json:"reconciledAt,omitempty"`
+	ReconciledAt time.Time                 `json:"reconciledAt,omitzero"`
 	Summary      *ArgocdApplicationSummary `json:"summary,omitempty"`
 }
 
@@ -165,7 +169,7 @@ type ArgocdApplicationMetadata struct {
 	Namespace         string            `json:"namespace,omitempty"`
 	Labels            map[string]string `json:"labels,omitempty"`
 	Annotations       map[string]string `json:"annotations,omitempty"`
-	CreationTimestamp time.Time         `json:"creationTimestamp,omitempty"`
+	CreationTimestamp time.Time         `json:"creationTimestamp,omitzero"`
 	UID               string            `json:"uid,omitempty"`
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -25,12 +26,17 @@ type TokenCache struct {
 
 // AuthService manages ArgoCD authentication and token caching
 type AuthService struct {
-	config          *config.Config
-	httpClient      *http.Client
-	tokenCache      *TokenCache
-	refreshMutex    sync.Mutex
-	refreshingToken bool
+	config       *config.Config
+	httpClient   *http.Client
+	tokenCache   *TokenCache
+	refreshMutex sync.Mutex
+	lastFailure  time.Time
+	lastErr      error
 }
+
+// loginBackoff is how long a failed login is remembered, so a burst of requests during
+// an ArgoCD outage does not queue up behind the mutex or trip ArgoCD's login limiter.
+const loginBackoff = 5 * time.Second
 
 // NewAuthService creates a new authentication service
 func NewAuthService(cfg *config.Config) *AuthService {
@@ -52,23 +58,19 @@ func (a *AuthService) GetValidToken(ctx context.Context) (string, error) {
 		return a.tokenCache.Token, nil
 	}
 
-	// If already refreshing, wait for completion
-	if a.refreshingToken {
-		// Release lock temporarily to allow other operations
-		a.refreshMutex.Unlock()
-		for a.refreshingToken {
-			time.Sleep(100 * time.Millisecond)
-		}
-		a.refreshMutex.Lock()
-
-		// Check again after waiting
-		if a.tokenCache != nil && a.isTokenValid() {
-			return a.tokenCache.Token, nil
-		}
+	if wait := loginBackoff - time.Since(a.lastFailure); wait > 0 {
+		return "", fmt.Errorf("ArgoCD login failed %s ago, not retrying yet: %w",
+			time.Since(a.lastFailure).Round(time.Millisecond), a.lastErr)
 	}
 
-	// Refresh the token
-	return a.refreshToken(ctx)
+	// ponytail: the mutex is held across the login call, so callers wait for one login
+	// instead of starting their own. Use singleflight if that wait ever matters.
+	token, err := a.refreshToken(ctx)
+	// A caller that went away says nothing about ArgoCD; a timeout does.
+	if err != nil && !errors.Is(err, context.Canceled) {
+		a.lastFailure, a.lastErr = time.Now(), err
+	}
+	return token, err
 }
 
 // isTokenValid checks if the current token is valid and not expiring soon
@@ -84,11 +86,6 @@ func (a *AuthService) isTokenValid() bool {
 
 // refreshToken obtains a new token from ArgoCD
 func (a *AuthService) refreshToken(ctx context.Context) (string, error) {
-	a.refreshingToken = true
-	defer func() {
-		a.refreshingToken = false
-	}()
-
 	start := time.Now()
 	log.Println("Refreshing ArgoCD token...")
 
@@ -103,7 +100,7 @@ func (a *AuthService) refreshToken(ctx context.Context) (string, error) {
 		Password: a.config.ArgocdPassword,
 	}
 
-	reqBody, err := json.Marshal(sessionReq)
+	reqBody, err := json.Marshal(sessionReq) //nolint:gosec // the login payload has to carry the password
 	if err != nil {
 		recordResult("failure")
 		return "", fmt.Errorf("failed to marshal session request: %w", err)

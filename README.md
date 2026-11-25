@@ -48,6 +48,9 @@ PROJECT_GROUPS=[{"name":"Frontend","description":"Frontend applications","projec
 
 # Ignored Projects Configuration (comma-separated with pattern support)
 IGNORED_PROJECTS=test-*,*-dev,ignore-me
+
+# Optional: allowed CORS origins (comma-separated); empty allows any origin
+CORS_ALLOWED_ORIGINS=https://dashboard.your-domain.com
 ```
 
 ### Project Filtering Patterns
@@ -111,9 +114,9 @@ Configure project groups using JSON format in the `PROJECT_GROUPS` environment v
    go mod download
    ```
 
-4. **Generate Swagger documentation** (required for compilation):
+4. **Regenerate Swagger documentation** (only after changing API annotations):
    ```bash
-   go run github.com/swaggo/swag/cmd/swag@latest init
+   ./scripts/build.sh
    ```
 
 5. **Run the server**:
@@ -151,33 +154,22 @@ Configure project groups using JSON format in the `PROJECT_GROUPS` environment v
 
 ### Docker Compose
 
-Create a `docker-compose.yml` file:
+The repository ships a `docker-compose.yml` that reads its settings from `.env`:
 
-```yaml
-version: '3.8'
-services:
-  argocd-proxy:
-    build: .
-    ports:
-      - "5001:5001"
-    environment:
-      - ARGOCD_API_URL=https://argocd.your-domain.com/api/v1
-      - ARGOCD_USERNAME=your_username
-      - ARGOCD_PASSWORD=your_password
-      - PROJECT_GROUPS=[]
-      - IGNORED_PROJECTS=test-*,*-dev
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5001/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    restart: unless-stopped
-```
-
-Run with:
 ```bash
-docker-compose up -d
+cp env.example .env        # then fill in the ArgoCD URL and credentials
+./scripts/build.sh         # the image copies the prebuilt binary from bin/
+docker compose up -d --build
 ```
+
+Never put credentials in `docker-compose.yml` itself.
+
+## Security
+
+- The proxy has no authentication of its own. Run it behind an authenticating ingress or
+  on a private network, and set `CORS_ALLOWED_ORIGINS` to the frontend origin.
+- Give it a dedicated ArgoCD account with a read-only role; it only issues `GET` requests.
+- If ArgoCD rejects the cached token (`401`), the proxy logs in again and retries once.
 
 ## Enhanced Features
 

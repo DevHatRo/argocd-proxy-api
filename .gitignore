@@ -58,9 +58,6 @@ coverage.html
 tmp/
 temp/
 
-# Generated swagger documentation (built at runtime)
-docs/
-
 # Large ArgoCD response files used for reference
 application.json
 applications.json
@@ -72,3 +69,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .cursor/
+
+# Audit reports
+.audit/

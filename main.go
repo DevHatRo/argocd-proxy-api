@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:generate go run github.com/swaggo/swag/cmd/swag@latest init
+//go:generate ./scripts/build.sh
 
 // @title ArgoCD Proxy API
 // @version 1.0
@@ -25,6 +25,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -101,12 +102,14 @@ func main() {
 	server.authService.StartTokenRefreshRoutine(ctx)
 
 	// Start server with graceful shutdown
-	server.start(ctx, cancel)
+	server.start(cancel)
 }
 
 // setupRouter configures the Gin router with all routes and middleware
 func (s *Server) setupRouter() {
 	s.router = gin.New()
+	// Do not trust X-Forwarded-For from arbitrary clients for the logged client IP.
+	_ = s.router.SetTrustedProxies(nil)
 
 	// Add middleware
 	s.router.Use(gin.Logger())
@@ -115,7 +118,11 @@ func (s *Server) setupRouter() {
 
 	// CORS configuration
 	corsConfig := cors.DefaultConfig()
-	corsConfig.AllowAllOrigins = true
+	if len(s.config.CORSAllowedOrigins) > 0 {
+		corsConfig.AllowOrigins = s.config.CORSAllowedOrigins
+	} else {
+		corsConfig.AllowAllOrigins = true
+	}
 	corsConfig.AllowMethods = []string{"GET", "HEAD", "OPTIONS"}
 	corsConfig.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
 	corsConfig.ExposeHeaders = []string{"Content-Length"}
@@ -165,7 +172,7 @@ func (s *Server) healthCheck(c *gin.Context) {
 	// Check ArgoCD API connectivity
 	if err := s.argocdService.HealthCheck(ctx); err != nil {
 		log.Printf("ArgoCD health check failed: %v", err)
-		response.ArgocdAPI = fmt.Sprintf("error: %v", err)
+		response.ArgocdAPI = "unreachable"
 		response.Status = "degraded"
 		c.JSON(http.StatusServiceUnavailable, response)
 		return
@@ -278,7 +285,7 @@ func (s *Server) getApplication(c *gin.Context) {
 
 	application, err := s.argocdService.GetApplication(ctx, appName)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "ignored project") {
+		if errors.Is(err, types.ErrNotFound) {
 			s.errorResponse(c, http.StatusNotFound, fmt.Sprintf("Application '%s' not found", appName), err.Error())
 			return
 		}
@@ -312,9 +319,9 @@ func (s *Server) getApplicationsByGroup(c *gin.Context) {
 		return
 	}
 
-	applications, err := s.argocdService.GetApplicationsByGroup(ctx, groupName, s.config)
+	applications, err := s.argocdService.GetApplicationsByGroup(ctx, groupName)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, types.ErrNotFound) {
 			s.errorResponse(c, http.StatusNotFound, fmt.Sprintf("Project group '%s' not found", groupName), err.Error())
 			return
 		}
@@ -385,10 +392,14 @@ func (s *Server) errorResponse(c *gin.Context, statusCode int, message, details 
 }
 
 // start starts the HTTP server with graceful shutdown
-func (s *Server) start(ctx context.Context, cancel context.CancelFunc) {
+func (s *Server) start(cancel context.CancelFunc) {
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%s", s.config.Port),
-		Handler: s.router,
+		Addr:              fmt.Sprintf(":%s", s.config.Port),
+		Handler:           s.router,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      30 * time.Second, // handlers time out upstream calls at 10s
+		IdleTimeout:       60 * time.Second,
 	}
 
 	// Start server in a goroutine
