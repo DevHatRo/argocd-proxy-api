@@ -1,0 +1,33 @@
+name: Dependabot Auto-Merge
+
+# Merges Dependabot's grouped minor/patch PRs after Test Build has passed on them.
+# Major updates are not grouped (see dependabot.yml), so they never match and wait
+# for a human.
+on:
+  workflow_run:
+    workflows: ["Test Build"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]' &&
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/') &&
+      contains(github.event.workflow_run.head_branch, '-minor-patch')
+    steps:
+      - name: Squash-merge the pull request
+        env:
+          # A PAT, not GITHUB_TOKEN: a merge made with GITHUB_TOKEN does not trigger
+          # release-please on main.
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          gh pr merge "$HEAD_BRANCH" --repo "$REPO" --squash --match-head-commit "$HEAD_SHA"
