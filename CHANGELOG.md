@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/DevHatRo/argocd-proxy-api/compare/v1.2.1...v1.2.2) (2026-11-25)
+
+
+### CI/CD
+
+* group Dependabot updates, auto-merge minor and patch, bump actions ([#49](https://github.com/DevHatRo/argocd-proxy-api/issues/49)) ([f5df3dc](https://github.com/DevHatRo/argocd-proxy-api/commit/f5df3dc7b58b32b965d04c0bc7007291b9ae62ee))
+
 ## [1.2.1](https://github.com/DevHatRo/argocd-proxy-api/compare/v1.2.0...v1.2.1) (2026-11-25)
 
 
