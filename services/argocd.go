@@ -3,9 +3,12 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -22,6 +25,16 @@ type ArgocdService struct {
 	httpClient        *http.Client
 	projectsCache     *cache.Cache[[]types.ArgocdProject]
 	applicationsCache *cache.Cache[types.ArgocdApplicationList]
+}
+
+// statusError is a non-200 answer from ArgoCD
+type statusError struct {
+	code int
+	body string
+}
+
+func (e *statusError) Error() string {
+	return fmt.Sprintf("ArgoCD API returned status %d: %s", e.code, e.body)
 }
 
 // NewArgocdService creates a new ArgoCD service instance
@@ -54,6 +67,46 @@ func (s *ArgocdService) doInstrumented(req *http.Request, endpoint string) (*htt
 	return resp, err
 }
 
+// getJSON performs an authenticated GET against ArgoCD and decodes the body into out
+// (out may be nil). endpoint is the metrics label. A 401 means the cached token was
+// revoked upstream, so the token is dropped and the call is retried once with a fresh one.
+func (s *ArgocdService) getJSON(ctx context.Context, path, endpoint string, out interface{}) error {
+	err := s.doGet(ctx, path, endpoint, out)
+
+	var se *statusError
+	if errors.As(err, &se) && se.code == http.StatusUnauthorized {
+		s.authService.InvalidateToken()
+		err = s.doGet(ctx, path, endpoint, out)
+	}
+	return err
+}
+
+func (s *ArgocdService) doGet(ctx context.Context, path, endpoint string, out interface{}) error {
+	req, err := s.authService.CreateAuthenticatedRequest(ctx, http.MethodGet, s.config.ArgocdAPIURL+path, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create authenticated request: %w", err)
+	}
+
+	resp, err := s.doInstrumented(req, endpoint)
+	if err != nil {
+		return fmt.Errorf("failed to execute request to ArgoCD: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return &statusError{code: resp.StatusCode, body: string(body)}
+	}
+
+	if out == nil {
+		return nil
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("failed to decode ArgoCD response: %w", err)
+	}
+	return nil
+}
+
 // GetProjects retrieves all projects from ArgoCD
 func (s *ArgocdService) GetProjects(ctx context.Context) ([]types.ArgocdProject, error) {
 	if cached, ok := s.projectsCache.Get(); ok {
@@ -62,27 +115,9 @@ func (s *ArgocdService) GetProjects(ctx context.Context) ([]types.ArgocdProject,
 	}
 	metrics.CacheMissesTotal.WithLabelValues("projects").Inc()
 
-	url := fmt.Sprintf("%s/projects", s.config.ArgocdAPIURL)
-
-	req, err := s.authService.CreateAuthenticatedRequest(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create authenticated request: %w", err)
-	}
-
-	resp, err := s.doInstrumented(req, "/projects")
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute request to ArgoCD: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ArgoCD API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
 	var projectList types.ArgocdProjectList
-	if err := json.NewDecoder(resp.Body).Decode(&projectList); err != nil {
-		return nil, fmt.Errorf("failed to decode projects response: %w", err)
+	if err := s.getJSON(ctx, "/projects", "/projects", &projectList); err != nil {
+		return nil, err
 	}
 
 	s.projectsCache.Set(projectList.Items)
@@ -114,101 +149,53 @@ func (s *ArgocdService) GetApplications(ctx context.Context) (types.ArgocdApplic
 	}
 	metrics.CacheMissesTotal.WithLabelValues("applications").Inc()
 
-	url := fmt.Sprintf("%s/applications", s.config.ArgocdAPIURL)
-
-	req, err := s.authService.CreateAuthenticatedRequest(ctx, "GET", url, nil)
-	if err != nil {
-		return types.ArgocdApplicationList{}, fmt.Errorf("failed to create authenticated request: %w", err)
-	}
-
-	resp, err := s.doInstrumented(req, "/applications")
-	if err != nil {
-		return types.ArgocdApplicationList{}, fmt.Errorf("failed to execute request to ArgoCD: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return types.ArgocdApplicationList{}, fmt.Errorf("ArgoCD API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
 	var appList types.ArgocdApplicationList
-	if err := json.NewDecoder(resp.Body).Decode(&appList); err != nil {
-		return types.ArgocdApplicationList{}, fmt.Errorf("failed to decode applications response: %w", err)
+	if err := s.getJSON(ctx, "/applications", "/applications", &appList); err != nil {
+		return types.ArgocdApplicationList{}, err
 	}
 
-	// Filter applications based on ignored projects
 	var filteredApps []types.ArgocdApplication
 	for _, app := range appList.Items {
 		if !s.config.ShouldFilterProject(app.Spec.Project) {
-			// Get ingress URLs for this application
-			s.extractURLsFromApplication(&app)
+			setIngressURLs(&app)
 			filteredApps = append(filteredApps, app)
 		}
 	}
-
-	// Update the application list with filtered results
 	appList.Items = filteredApps
 
 	s.applicationsCache.Set(appList)
 	return appList, nil
 }
 
-// GetApplication retrieves a specific application from ArgoCD
+// GetApplication retrieves a specific application from ArgoCD. An application that does
+// not exist and one that belongs to a filtered project both return types.ErrNotFound,
+// so callers cannot tell them apart.
 func (s *ArgocdService) GetApplication(ctx context.Context, name string) (types.ArgocdApplication, error) {
-	url := fmt.Sprintf("%s/applications/%s", s.config.ArgocdAPIURL, name)
-
-	req, err := s.authService.CreateAuthenticatedRequest(ctx, "GET", url, nil)
-	if err != nil {
-		return types.ArgocdApplication{}, fmt.Errorf("failed to create authenticated request: %w", err)
-	}
-
-	resp, err := s.doInstrumented(req, "/applications/:name")
-	if err != nil {
-		return types.ArgocdApplication{}, fmt.Errorf("failed to execute request to ArgoCD: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return types.ArgocdApplication{}, fmt.Errorf("application '%s' not found", name)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return types.ArgocdApplication{}, fmt.Errorf("ArgoCD API returned status %d: %s", resp.StatusCode, string(body))
+	notFound := fmt.Errorf("application '%s': %w", name, types.ErrNotFound)
+	if name == "." || name == ".." {
+		return types.ArgocdApplication{}, notFound
 	}
 
 	var app types.ArgocdApplication
-	if err := json.NewDecoder(resp.Body).Decode(&app); err != nil {
-		return types.ArgocdApplication{}, fmt.Errorf("failed to decode application response: %w", err)
+	err := s.getJSON(ctx, "/applications/"+url.PathEscape(name), "/applications/:name", &app)
+
+	// ArgoCD answers 403 instead of 404 for an application that does not exist, so
+	// that names cannot be probed. Both mean "not visible to this account".
+	var se *statusError
+	if errors.As(err, &se) && (se.code == http.StatusNotFound || se.code == http.StatusForbidden) {
+		return types.ArgocdApplication{}, notFound
+	}
+	if err != nil {
+		return types.ArgocdApplication{}, err
 	}
 
-	// Check if the application's project should be filtered
 	if s.config.ShouldFilterProject(app.Spec.Project) {
-		return types.ArgocdApplication{}, fmt.Errorf("application '%s' belongs to filtered project '%s'", name, app.Spec.Project)
+		return types.ArgocdApplication{}, notFound
 	}
 
-	// Get ingress URLs for this application
-	s.extractURLsFromApplication(&app)
+	setIngressURLs(&app)
 
 	return app, nil
-}
-
-// ProxyRequest proxies a generic request to ArgoCD with authentication
-func (s *ArgocdService) ProxyRequest(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
-	url := fmt.Sprintf("%s%s", s.config.ArgocdAPIURL, path)
-
-	req, err := s.authService.CreateAuthenticatedRequest(ctx, method, url, body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create authenticated request: %w", err)
-	}
-
-	resp, err := s.doInstrumented(req, "/proxy")
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute request to ArgoCD: %w", err)
-	}
-
-	return resp, nil
 }
 
 // GetProjectNames retrieves only the names of all projects (for grouping purposes)
@@ -226,134 +213,51 @@ func (s *ArgocdService) GetProjectNames(ctx context.Context) ([]string, error) {
 	return projectNames, nil
 }
 
-// HealthCheck performs a health check by attempting to get projects
+// HealthCheck verifies that ArgoCD answers an authenticated request
 func (s *ArgocdService) HealthCheck(ctx context.Context) error {
-	// Try to get a valid token first
-	_, err := s.authService.GetValidToken(ctx)
-	if err != nil {
-		return fmt.Errorf("token validation failed: %w", err)
+	if err := s.getJSON(ctx, "/projects", "/healthcheck", nil); err != nil {
+		return fmt.Errorf("health check failed: %w", err)
 	}
-
-	// Try to make a simple API call to verify connectivity
-	url := fmt.Sprintf("%s/projects", s.config.ArgocdAPIURL)
-	req, err := s.authService.CreateAuthenticatedRequest(ctx, "GET", url, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create health check request: %w", err)
-	}
-
-	// Use a shorter timeout for health checks
-	healthCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	req = req.WithContext(healthCtx)
-
-	resp, err := s.doInstrumented(req, "/healthcheck")
-	if err != nil {
-		return fmt.Errorf("health check request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("health check failed with status %d", resp.StatusCode)
-	}
-
 	return nil
 }
 
-// extractURLsFromApplication extracts external URLs from an application's status summary
-func (s *ArgocdService) extractURLsFromApplication(app *types.ArgocdApplication) {
-	var urls []string
-
-	// Extract URLs from status summary if available
-	if app.Status.Summary != nil && len(app.Status.Summary.ExternalURLs) > 0 {
-		urls = append(urls, app.Status.Summary.ExternalURLs...)
+// setIngressURLs copies the external URLs from the status summary onto the application
+func setIngressURLs(app *types.ArgocdApplication) {
+	app.IngressURLs = nil
+	if app.Status.Summary != nil {
+		app.IngressURLs = append(app.IngressURLs, app.Status.Summary.ExternalURLs...)
 	}
-
-	// Set the ingress URLs on the application
-	app.IngressURLs = urls
 }
 
-// ExtractIngressURLs extracts ingress URLs from application status summary
-// This method is kept for interface compatibility
-func (s *ArgocdService) ExtractIngressURLs(ctx context.Context, appName string) ([]string, error) {
-	// Get the application first
-	app, err := s.GetApplication(ctx, appName)
+// applicationsInProjects returns the visible applications that belong to one of projects
+func (s *ArgocdService) applicationsInProjects(ctx context.Context, projects ...string) (types.ArgocdApplicationList, error) {
+	list, err := s.GetApplications(ctx)
 	if err != nil {
-		return []string{}, err
+		return types.ArgocdApplicationList{}, err
 	}
 
-	// Return the URLs from the application
-	return app.IngressURLs, nil
+	// Build a new slice: list.Items may be shared with the cache.
+	var apps []types.ArgocdApplication
+	for _, app := range list.Items {
+		if slices.Contains(projects, app.Spec.Project) {
+			apps = append(apps, app)
+		}
+	}
+	list.Items = apps
+	return list, nil
 }
 
 // GetApplicationsByGroup retrieves applications from a specific project group
-func (s *ArgocdService) GetApplicationsByGroup(ctx context.Context, groupName string, cfg interface{}) (types.ArgocdApplicationList, error) {
-	// Type assert the config to access project groups
-	configObj, ok := cfg.(*config.Config)
-	if !ok {
-		return types.ArgocdApplicationList{}, fmt.Errorf("invalid config type")
-	}
-
-	// Find the specified group
-	var targetGroup *config.ProjectGroup
-	for i, group := range configObj.ProjectGroups {
+func (s *ArgocdService) GetApplicationsByGroup(ctx context.Context, groupName string) (types.ArgocdApplicationList, error) {
+	for _, group := range s.config.ProjectGroups {
 		if group.Name == groupName {
-			targetGroup = &configObj.ProjectGroups[i]
-			break
+			return s.applicationsInProjects(ctx, group.Projects...)
 		}
 	}
-
-	if targetGroup == nil {
-		return types.ArgocdApplicationList{}, fmt.Errorf("project group '%s' not found", groupName)
-	}
-
-	// Get all applications
-	allApplications, err := s.GetApplications(ctx)
-	if err != nil {
-		return types.ArgocdApplicationList{}, fmt.Errorf("failed to get applications: %w", err)
-	}
-
-	// Filter applications that belong to projects in this group
-	var filteredApps []types.ArgocdApplication
-	for _, app := range allApplications.Items {
-		for _, projectName := range targetGroup.Projects {
-			if app.Spec.Project == projectName {
-				filteredApps = append(filteredApps, app)
-				break
-			}
-		}
-	}
-
-	// Return filtered applications in the same format
-	return types.ArgocdApplicationList{
-		APIVersion: allApplications.APIVersion,
-		Kind:       allApplications.Kind,
-		Items:      filteredApps,
-		Metadata:   allApplications.Metadata,
-	}, nil
+	return types.ArgocdApplicationList{}, fmt.Errorf("project group '%s': %w", groupName, types.ErrNotFound)
 }
 
 // GetApplicationsByProject retrieves applications from a specific project
 func (s *ArgocdService) GetApplicationsByProject(ctx context.Context, projectName string) (types.ArgocdApplicationList, error) {
-	// Get all applications
-	allApplications, err := s.GetApplications(ctx)
-	if err != nil {
-		return types.ArgocdApplicationList{}, fmt.Errorf("failed to get applications: %w", err)
-	}
-
-	// Filter applications that belong to the specified project
-	var filteredApps []types.ArgocdApplication
-	for _, app := range allApplications.Items {
-		if app.Spec.Project == projectName {
-			filteredApps = append(filteredApps, app)
-		}
-	}
-
-	// Return filtered applications in the same format
-	return types.ArgocdApplicationList{
-		APIVersion: allApplications.APIVersion,
-		Kind:       allApplications.Kind,
-		Items:      filteredApps,
-		Metadata:   allApplications.Metadata,
-	}, nil
+	return s.applicationsInProjects(ctx, projectName)
 }

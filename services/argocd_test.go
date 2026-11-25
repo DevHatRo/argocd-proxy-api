@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -57,153 +58,8 @@ func (m *MockAuthService) StartTokenRefreshRoutine(ctx context.Context) {
 	// Mock implementation - do nothing
 }
 
-// MockArgocdService implements ArgocdServiceInterface for testing
-type MockArgocdService struct {
-	projects     []types.ArgocdProject
-	applications types.ArgocdApplicationList
-	application  types.ArgocdApplication
-	projectNames []string
-	err          error
-	healthErr    error
-	ingressURLs  []string // New field for ingress URLs
-}
-
-func (m *MockArgocdService) GetProjects(ctx context.Context) ([]types.ArgocdProject, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.projects, nil
-}
-
-func (m *MockArgocdService) GetFilteredProjects(ctx context.Context) ([]types.ArgocdProject, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	var filteredProjects []types.ArgocdProject
-	for _, project := range m.projects {
-		// Mock simple filtering logic for tests - in real implementation this uses ShouldFilterProject
-		if !strings.HasPrefix(project.Metadata.Name, "test-") && !strings.HasSuffix(project.Metadata.Name, "-app") {
-			filteredProjects = append(filteredProjects, project)
-		}
-	}
-	return filteredProjects, nil
-}
-
-func (m *MockArgocdService) GetApplications(ctx context.Context) (types.ArgocdApplicationList, error) {
-	if m.err != nil {
-		return types.ArgocdApplicationList{}, m.err
-	}
-	return m.applications, nil
-}
-
-func (m *MockArgocdService) GetApplication(ctx context.Context, appName string) (types.ArgocdApplication, error) {
-	if m.err != nil {
-		return types.ArgocdApplication{}, m.err
-	}
-	for _, app := range m.applications.Items {
-		if app.Metadata.Name == appName {
-			return app, nil
-		}
-	}
-	return types.ArgocdApplication{}, fmt.Errorf("application not found")
-}
-
-func (m *MockArgocdService) ProxyRequest(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-
-	resp := httptest.NewRecorder()
-	resp.Code = http.StatusOK // Default to OK for mock
-	resp.Header().Set("Content-Type", "application/json")
-
-	// Simulate different response codes based on path
-	switch path {
-	case "/projects":
-		if method == "GET" {
-			projectList := types.ArgocdProjectList{
-				APIVersion: "v1",
-				Kind:       "List",
-				Items:      m.projects,
-			}
-			json.NewEncoder(resp).Encode(projectList)
-		} else {
-			resp.Code = http.StatusMethodNotAllowed
-			resp.Write([]byte("Method Not Allowed"))
-		}
-	case "/applications":
-		if method == "GET" {
-			appList := types.ArgocdApplicationList{
-				APIVersion: "v1",
-				Kind:       "List",
-				Items:      m.applications.Items,
-			}
-			json.NewEncoder(resp).Encode(appList)
-		} else {
-			resp.Code = http.StatusMethodNotAllowed
-			resp.Write([]byte("Method Not Allowed"))
-		}
-	case "/applications/my-app": // Specific application retrieval
-		if method == "GET" {
-			json.NewEncoder(resp).Encode(m.application)
-		} else {
-			resp.Code = http.StatusMethodNotAllowed
-			resp.Write([]byte("Method Not Allowed"))
-		}
-	default:
-		resp.Code = http.StatusNotFound
-		resp.Write([]byte("Not Found"))
-	}
-
-	return resp.Result(), nil
-}
-
-func (m *MockArgocdService) GetProjectNames(ctx context.Context) ([]string, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.projectNames, nil
-}
-
-func (m *MockArgocdService) HealthCheck(ctx context.Context) error {
-	if m.healthErr != nil {
-		return m.healthErr
-	}
-	return nil
-}
-
-func (m *MockArgocdService) ExtractIngressURLs(ctx context.Context, appName string) ([]string, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.ingressURLs, nil
-}
-
-func (m *MockArgocdService) GetApplicationsByGroup(ctx context.Context, groupName string, cfg interface{}) (types.ArgocdApplicationList, error) {
-	if m.err != nil {
-		return types.ArgocdApplicationList{}, m.err
-	}
-	// Return mock applications for testing
-	return m.applications, nil
-}
-
-func (m *MockArgocdService) GetApplicationsByProject(ctx context.Context, projectName string) (types.ArgocdApplicationList, error) {
-	if m.err != nil {
-		return types.ArgocdApplicationList{}, m.err
-	}
-	// Filter applications by project for testing
-	var filteredApps []types.ArgocdApplication
-	for _, app := range m.applications.Items {
-		if app.Spec.Project == projectName {
-			filteredApps = append(filteredApps, app)
-		}
-	}
-	return types.ArgocdApplicationList{
-		APIVersion: m.applications.APIVersion,
-		Kind:       m.applications.Kind,
-		Items:      filteredApps,
-		Metadata:   m.applications.Metadata,
-	}, nil
+func (m *MockAuthService) InvalidateToken() {
+	m.callLog = append(m.callLog, "InvalidateToken")
 }
 
 func TestNewArgocdService(t *testing.T) {
@@ -501,7 +357,7 @@ func TestGetApplication(t *testing.T) {
 				json.NewEncoder(w).Encode(app)
 			},
 			expectError:   true,
-			errorContains: "filtered project",
+			errorContains: "not found",
 		},
 		{
 			name:    "application not found",
@@ -556,78 +412,6 @@ func TestGetApplication(t *testing.T) {
 
 			if app.Metadata.Name != tt.expectedApp {
 				t.Errorf("GetApplication() app name = %v, want %v", app.Metadata.Name, tt.expectedApp)
-			}
-		})
-	}
-}
-
-func TestProxyRequest(t *testing.T) {
-	tests := []struct {
-		name           string
-		method         string
-		path           string
-		body           []byte
-		serverResponse func(w http.ResponseWriter, r *http.Request)
-		expectError    bool
-	}{
-		{
-			name:   "successful GET request",
-			method: "GET",
-			path:   "/projects",
-			serverResponse: func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != "GET" {
-					t.Errorf("Expected GET request, got %s", r.Method)
-				}
-				if r.URL.Path != "/projects" {
-					t.Errorf("Expected /projects path, got %s", r.URL.Path)
-				}
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"result":"success"}`))
-			},
-		},
-		{
-			name:   "successful POST request",
-			method: "POST",
-			path:   "/applications",
-			body:   []byte(`{"name":"test"}`),
-			serverResponse: func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != "POST" {
-					t.Errorf("Expected POST request, got %s", r.Method)
-				}
-				w.WriteHeader(http.StatusCreated)
-				w.Write([]byte(`{"created":"ok"}`))
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(tt.serverResponse))
-			defer server.Close()
-
-			cfg := &config.Config{ArgocdAPIURL: server.URL}
-			authSvc := &MockAuthService{token: "test-token"}
-			service := NewArgocdService(cfg, authSvc)
-
-			ctx := context.Background()
-			resp, err := service.ProxyRequest(ctx, tt.method, tt.path, tt.body)
-
-			if tt.expectError {
-				if err == nil {
-					t.Errorf("ProxyRequest() expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("ProxyRequest() unexpected error: %v", err)
-				return
-			}
-
-			defer resp.Body.Close()
-
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				t.Errorf("ProxyRequest() status = %v, want 2xx", resp.StatusCode)
 			}
 		})
 	}
@@ -692,7 +476,7 @@ func TestHealthCheck(t *testing.T) {
 			name:          "auth service error",
 			authError:     fmt.Errorf("token refresh failed"),
 			expectError:   true,
-			errorContains: "token validation failed",
+			errorContains: "token refresh failed",
 		},
 		{
 			name: "ArgoCD API unreachable",
@@ -991,5 +775,96 @@ func TestCacheDisabledWithZeroTTL(t *testing.T) {
 
 	if callCount != 2 {
 		t.Errorf("with TTL=0, expected 2 server calls, got %d", callCount)
+	}
+}
+
+func TestGetJSONRetriesOnceAfterUnauthorized(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(types.ArgocdProjectList{
+			Items: []types.ArgocdProject{{Metadata: types.ArgocdProjectMetadata{Name: "p1"}}},
+		})
+	}))
+	defer server.Close()
+
+	authSvc := &MockAuthService{token: "test-token"}
+	service := NewArgocdService(&config.Config{ArgocdAPIURL: server.URL}, authSvc)
+
+	projects, err := service.GetProjects(context.Background())
+	if err != nil || len(projects) != 1 {
+		t.Fatalf("GetProjects() = %v, %v; want one project after retry", projects, err)
+	}
+	if calls != 2 {
+		t.Errorf("upstream calls = %d, want 2", calls)
+	}
+	if !strings.Contains(strings.Join(authSvc.callLog, ","), "InvalidateToken") {
+		t.Errorf("token was not invalidated after 401: %v", authSvc.callLog)
+	}
+}
+
+func TestGetApplicationHidesFilteredAndEscapesName(t *testing.T) {
+	var gotURI string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotURI = r.RequestURI
+		_ = json.NewEncoder(w).Encode(types.ArgocdApplication{
+			Spec: types.ArgocdApplicationSpec{Project: "test-project"},
+		})
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{ArgocdAPIURL: server.URL, IgnoredProjects: []string{"test-*"}}
+	service := NewArgocdService(cfg, &MockAuthService{token: "test-token"})
+
+	_, err := service.GetApplication(context.Background(), "app?refresh=hard")
+	if !errors.Is(err, types.ErrNotFound) {
+		t.Errorf("filtered application error = %v, want types.ErrNotFound", err)
+	}
+	if strings.Contains(gotURI, "?") {
+		t.Errorf("application name reached ArgoCD unescaped: %s", gotURI)
+	}
+}
+
+func TestGetApplicationsByGroup(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(types.ArgocdApplicationList{Items: []types.ArgocdApplication{
+			{Metadata: types.ArgocdApplicationMetadata{Name: "a"}, Spec: types.ArgocdApplicationSpec{Project: "web"}},
+			{Metadata: types.ArgocdApplicationMetadata{Name: "b"}, Spec: types.ArgocdApplicationSpec{Project: "other"}},
+		}})
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		ArgocdAPIURL:  server.URL,
+		ProjectGroups: []config.ProjectGroup{{Name: "Frontend", Projects: []string{"web", "mobile"}}},
+	}
+	service := NewArgocdService(cfg, &MockAuthService{token: "test-token"})
+
+	apps, err := service.GetApplicationsByGroup(context.Background(), "Frontend")
+	if err != nil || len(apps.Items) != 1 || apps.Items[0].Metadata.Name != "a" {
+		t.Errorf("GetApplicationsByGroup() = %+v, %v; want only app a", apps.Items, err)
+	}
+
+	if _, err := service.GetApplicationsByGroup(context.Background(), "Missing"); !errors.Is(err, types.ErrNotFound) {
+		t.Errorf("unknown group error = %v, want types.ErrNotFound", err)
+	}
+}
+
+func TestGetApplicationForbiddenAndDotNamesAreNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	service := NewArgocdService(&config.Config{ArgocdAPIURL: server.URL}, &MockAuthService{token: "test-token"})
+
+	for _, name := range []string{"missing", ".", ".."} {
+		if _, err := service.GetApplication(context.Background(), name); !errors.Is(err, types.ErrNotFound) {
+			t.Errorf("GetApplication(%q) error = %v, want types.ErrNotFound", name, err)
+		}
 	}
 }

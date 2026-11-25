@@ -593,3 +593,23 @@ func BenchmarkGetTokenStatus(b *testing.B) {
 		authService.GetTokenStatus()
 	}
 }
+
+func TestLoginBackoffAfterFailure(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	authService := NewAuthService(&config.Config{ArgocdAPIURL: server.URL})
+
+	for i := 0; i < 3; i++ {
+		if _, err := authService.GetValidToken(context.Background()); err == nil {
+			t.Fatal("GetValidToken() expected error")
+		}
+	}
+	if calls != 1 {
+		t.Errorf("login attempts = %d, want 1 (later calls must fail fast)", calls)
+	}
+}

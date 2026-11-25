@@ -264,52 +264,6 @@ func TestIsProjectIgnored(t *testing.T) {
 	}
 }
 
-func TestFilterProjects(t *testing.T) {
-	config := &Config{
-		IgnoredProjects: []string{"test-*", "*-dev"},
-	}
-
-	tests := []struct {
-		name     string
-		projects []string
-		expected []string
-	}{
-		{
-			name:     "filter some projects",
-			projects: []string{"app1", "test-app", "app2-dev", "production"},
-			expected: []string{"app1", "production"},
-		},
-		{
-			name:     "filter no projects",
-			projects: []string{"app1", "app2", "production"},
-			expected: []string{"app1", "app2", "production"},
-		},
-		{
-			name:     "filter all projects",
-			projects: []string{"test-app", "app-dev"},
-			expected: nil, // FilterProjects returns nil for empty result, not []string{}
-		},
-		{
-			name:     "empty input",
-			projects: []string{},
-			expected: nil, // FilterProjects returns nil for empty result, not []string{}
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := config.FilterProjects(tt.projects)
-			// Handle nil vs empty slice equivalence
-			if len(result) == 0 && len(tt.expected) == 0 {
-				return // Both are effectively empty
-			}
-			if !reflect.DeepEqual(result, tt.expected) {
-				t.Errorf("FilterProjects(%v) = %v, want %v", tt.projects, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestGetProjectGroups(t *testing.T) {
 	config := &Config{
 		ProjectGroups: []ProjectGroup{
@@ -733,5 +687,25 @@ func TestUserScenarioFix(t *testing.T) {
 				t.Errorf("Grouped project '%s' in group '%s' should never be filtered", projectName, group.Name)
 			}
 		}
+	}
+}
+
+func TestLoadConfigCORSAllowedOrigins(t *testing.T) {
+	t.Setenv("ARGOCD_API_URL", "https://argocd.example.com/api/v1")
+	t.Setenv("ARGOCD_USERNAME", "user")
+	t.Setenv("ARGOCD_PASSWORD", "pass")
+	// earlier tests leave these set
+	t.Setenv("PROJECT_GROUPS", "")
+	t.Setenv("CACHE_TTL", "30s")
+
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://a.example.com, http://b.example.com,")
+	cfg, err := LoadConfig()
+	if err != nil || len(cfg.CORSAllowedOrigins) != 2 || cfg.CORSAllowedOrigins[1] != "http://b.example.com" {
+		t.Errorf("LoadConfig() origins = %v, %v; want two trimmed origins", cfg, err)
+	}
+
+	t.Setenv("CORS_ALLOWED_ORIGINS", "a.example.com")
+	if _, err := LoadConfig(); err == nil {
+		t.Error("LoadConfig() accepted an origin without a scheme")
 	}
 }

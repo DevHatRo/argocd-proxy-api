@@ -63,6 +63,8 @@ func (m *MockAuthService) StartTokenRefreshRoutine(ctx context.Context) {
 	// Mock implementation - do nothing
 }
 
+func (m *MockAuthService) InvalidateToken() {}
+
 // MockArgocdService for testing
 type MockArgocdService struct {
 	projects     []types.ArgocdProject
@@ -90,7 +92,7 @@ func (m *MockArgocdService) GetApplication(ctx context.Context, name string) (ty
 		return types.ArgocdApplication{}, m.err
 	}
 	if m.application.Metadata.Name == "" {
-		return types.ArgocdApplication{}, fmt.Errorf("application '%s' not found", name)
+		return types.ArgocdApplication{}, fmt.Errorf("application '%s': %w", name, types.ErrNotFound)
 	}
 	return m.application, nil
 }
@@ -103,15 +105,7 @@ func (m *MockArgocdService) HealthCheck(ctx context.Context) error {
 	return m.healthErr
 }
 
-func (m *MockArgocdService) ExtractIngressURLs(ctx context.Context, appName string) ([]string, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	// Return mock ingress URLs for testing
-	return []string{"https://example.com", "https://app.example.com"}, nil
-}
-
-func (m *MockArgocdService) GetApplicationsByGroup(ctx context.Context, groupName string, cfg interface{}) (types.ArgocdApplicationList, error) {
+func (m *MockArgocdService) GetApplicationsByGroup(ctx context.Context, groupName string) (types.ArgocdApplicationList, error) {
 	if m.err != nil {
 		return types.ArgocdApplicationList{}, m.err
 	}
@@ -423,7 +417,7 @@ func TestGetApplication(t *testing.T) {
 		{
 			name:           "application not found",
 			appName:        "nonexistent",
-			serviceErr:     fmt.Errorf("application 'nonexistent' not found"),
+			serviceErr:     fmt.Errorf("application 'nonexistent': %w", types.ErrNotFound),
 			expectedStatus: http.StatusNotFound,
 		},
 		{
@@ -648,7 +642,7 @@ func TestGetApplicationsByGroup(t *testing.T) {
 		{
 			name:           "group not found",
 			groupName:      "NonExistent",
-			serviceErr:     fmt.Errorf("project group 'NonExistent' not found"),
+			serviceErr:     fmt.Errorf("project group 'NonExistent': %w", types.ErrNotFound),
 			expectedStatus: http.StatusNotFound,
 		},
 	}
