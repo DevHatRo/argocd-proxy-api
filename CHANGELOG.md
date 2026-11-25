@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/DevHatRo/argocd-proxy-api/compare/v1.2.0...v1.2.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* recover from revoked ArgoCD tokens, hide filtered apps as 404, move to release-please ([#42](https://github.com/DevHatRo/argocd-proxy-api/issues/42)) ([41832e7](https://github.com/DevHatRo/argocd-proxy-api/commit/41832e7b7cd45999e612a91211ee896a8d238521))
+
 ## [1.2.0](https://github.com/DevHatRo/argocd-proxy-api/compare/v1.1.0...v1.2.0) (2026-02-17)
 
 
