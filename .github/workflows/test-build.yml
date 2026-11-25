@@ -18,39 +18,47 @@ on:
       - "README.md"
       - "README"
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build App for Testing
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
           cache: true
 
-      - name: Update Go dependencies
-        run: |
-          go mod tidy
+      - name: Verify Go dependencies
+        run: go mod verify
 
-      - name: Generate Swagger Documentation
-        run: |
-          go run github.com/swaggo/swag/cmd/swag@latest init
+      - name: Lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.15.0
 
       - name: Run Tests
-        run: |
-          go test ./... -v
+        run: go test -race ./...
+
+      - name: Vulnerability scan
+        uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1
+        with:
+          go-version-file: go.mod
+          repo-checkout: false
 
       - name: Build Binary
         run: |
           ./scripts/build.sh
 
       - name: Upload Test Artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: test-build-artifacts
           path: bin/

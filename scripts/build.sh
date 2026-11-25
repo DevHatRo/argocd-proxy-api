@@ -1,13 +1,15 @@
 #!/bin/bash
+set -euo pipefail
 
 VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo "dev")}
 BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 LDFLAGS="-w -s -X main.Version=$VERSION -X main.BuildTime=$BUILD_TIME"
 
-# Generate Swagger documentation
-echo "Generating Swagger documentation..."
-go run github.com/swaggo/swag/cmd/swag@latest init
+# Generate Swagger documentation with the swag version pinned in go.mod
+SWAG_VERSION=$(go list -m -f '{{.Version}}' github.com/swaggo/swag)
+echo "Generating Swagger documentation (swag ${SWAG_VERSION})..."
+go run "github.com/swaggo/swag/cmd/swag@${SWAG_VERSION}" init
 
 # Create bin directory if it doesn't exist
 mkdir -p ./bin
