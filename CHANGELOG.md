@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.3](https://github.com/DevHatRo/argocd-proxy-api/compare/v1.2.2...v1.2.3) (2026-11-25)
+
+
+### CI/CD
+
+* bump actions to latest major, group Dependabot majors, distroless debian13 ([#51](https://github.com/DevHatRo/argocd-proxy-api/issues/51)) ([1474f20](https://github.com/DevHatRo/argocd-proxy-api/commit/1474f2020b722f9bab6f556ea467cc6abf14d9d0))
+
 ## [1.2.2](https://github.com/DevHatRo/argocd-proxy-api/compare/v1.2.1...v1.2.2) (2026-11-25)
 
 
